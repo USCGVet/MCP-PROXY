@@ -1,0 +1,23 @@
+{
+  "name": "mcp-chrome-proxy",
+  "version": "1.0.0",
+  "description": "MCP proxy server to bridge WSL Claude Code and Windows Chrome DevTools",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/server.js",
+    "dev": "tsc && node dist/server.js"
+  },
+  "keywords": ["mcp", "chrome", "devtools", "proxy", "wsl"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "chrome-devtools-mcp": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

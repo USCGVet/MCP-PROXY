@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(wslview:*)",
+      "Bash(explorer.exe https://www.youtube.com)",
+      "Bash(cmd.exe:*)",
+      "Bash(curl:*)",
+      "Bash(claude mcp:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "mcp__chrome-proxy__list_pages",
+      "mcp__chrome-proxy__navigate_page",
+      "mcp__chrome-proxy__take_snapshot",
+      "mcp__chrome-proxy__click",
+      "mcp__chrome-proxy__fill",
+      "mcp__chrome-proxy__evaluate_script",
+      "mcp__chrome-proxy__press_key",
+      "mcp__chrome-proxy__take_screenshot",
+      "mcp__chrome-proxy__list_network_requests",
+      "mcp__chrome-proxy__list_console_messages",
+      "mcp__chrome-proxy__wait_for"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
