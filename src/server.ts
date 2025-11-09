@@ -18,28 +18,35 @@ const CHROME_URL = process.env.CHROME_URL || "http://localhost:9222";
 
 // Create a wrapper MCP server that will expose the chrome-devtools-mcp functionality
 class ChromeProxyServer {
-  private server: Server;
   private chromeClient: Client | null = null;
-  private httpTransport: StreamableHTTPServerTransport | null = null;
+  private activeSessions: Map<string, { server: Server; transport: StreamableHTTPServerTransport }> = new Map();
 
   constructor() {
-    this.server = new Server(
+    this.setupErrorHandling();
+  }
+
+  private createServerForSession(sessionId: string): Server {
+    console.log(`[Session] Creating new MCP server for session: ${sessionId}`);
+
+    const server = new Server(
       {
         name: "mcp-chrome-proxy",
         version: "1.0.0",
       },
       {
         capabilities: {
-          tools: {
-            // Declare that we support tools!
-            // The actual tools will be provided by our handlers
-          },
+          tools: {},
         },
       }
     );
 
-    this.setupHandlers();
-    this.setupErrorHandling();
+    this.setupHandlers(server);
+
+    server.onerror = (error) => {
+      console.error(`[Session ${sessionId}] MCP Error:`, error);
+    };
+
+    return server;
   }
 
   private async initChromeConnection(): Promise<void> {
@@ -75,24 +82,25 @@ class ChromeProxyServer {
     }
   }
 
-  private setupHandlers(): void {
-    console.log("[Setup] Registering request handlers...");
+  private setupHandlers(server: Server): void {
+    // Track if this specific server instance has been initialized
+    let serverInitialized = false;
+
+    // Intercept initialize to track state
+    const originalSetRequestHandler = server.setRequestHandler.bind(server);
 
     // List tools handler - forward to chrome client
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      console.log("[Request] ========== ListTools REQUEST RECEIVED ==========");
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
+      console.log("[Request] ListTools - Forwarding to chrome-devtools-mcp...");
       try {
-        console.log("[Request] ListTools - Initializing chrome connection...");
         await this.initChromeConnection();
 
         if (!this.chromeClient) {
           throw new Error("Chrome client not initialized");
         }
 
-        console.log("[Request] ListTools - Forwarding to chrome-devtools-mcp...");
         const result = await this.chromeClient.listTools();
-        console.log("[Response] ListTools - Received from chrome-devtools-mcp:");
-        console.log(JSON.stringify(result, null, 2));
+        console.log(`[Response] ListTools - ${result.tools.length} tools available`);
 
         return result;
       } catch (error) {
@@ -102,8 +110,8 @@ class ChromeProxyServer {
     });
 
     // Call tool handler - forward to chrome client
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      console.log("[Request] ========== CallTool REQUEST RECEIVED ==========");
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      console.log(`[Request] CallTool - ${request.params.name}`);
       try {
         await this.initChromeConnection();
 
@@ -111,16 +119,12 @@ class ChromeProxyServer {
           throw new Error("Chrome client not initialized");
         }
 
-        console.log(`[Request] CallTool - ${request.params.name}`);
-        console.log(`[Request] CallTool - Arguments:`, JSON.stringify(request.params.arguments, null, 2));
-
         const result = await this.chromeClient.callTool({
           name: request.params.name,
           arguments: request.params.arguments,
         });
 
         console.log(`[Response] CallTool - ${request.params.name} completed`);
-        console.log(`[Response] CallTool - Result:`, JSON.stringify(result, null, 2));
 
         return result;
       } catch (error) {
@@ -131,11 +135,6 @@ class ChromeProxyServer {
   }
 
   private setupErrorHandling(): void {
-    this.server.onerror = (error) => {
-      console.error("[MCP Error]", error);
-      console.error("[MCP Error] Stack:", error.stack);
-    };
-
     process.on("SIGINT", async () => {
       console.log("\n[Shutdown] Received SIGINT, shutting down gracefully...");
       await this.cleanup();
@@ -151,17 +150,23 @@ class ChromeProxyServer {
 
   private async cleanup(): Promise<void> {
     try {
-      if (this.httpTransport) {
-        await this.httpTransport.close();
-        this.httpTransport = null;
+      // Clean up all active sessions
+      for (const [sessionId, session] of this.activeSessions.entries()) {
+        console.log(`[Shutdown] Closing session: ${sessionId}`);
+        try {
+          await session.transport.close();
+          await session.server.close();
+        } catch (err) {
+          console.error(`[Shutdown] Error closing session ${sessionId}:`, err);
+        }
       }
+      this.activeSessions.clear();
 
       if (this.chromeClient) {
         await this.chromeClient.close();
         this.chromeClient = null;
       }
 
-      await this.server.close();
       console.log("[Shutdown] Cleanup completed");
     } catch (error) {
       console.error("[Shutdown] Error during cleanup:", error);
@@ -174,72 +179,135 @@ class ChromeProxyServer {
     try {
       await this.initChromeConnection();
       console.log("[Setup] Chrome connection pre-initialized successfully");
+
+      // Verify Chrome connection
+      const testTools = await this.chromeClient!.listTools();
+      console.log(`[Setup] SUCCESS! Chrome client has ${testTools.tools.length} tools available`);
+      console.log(`[Setup] Sample tools:`, testTools.tools.slice(0, 3).map((t: any) => t.name));
     } catch (error) {
       console.error("[Setup] WARNING: Failed to pre-initialize Chrome connection:", error);
       console.error("[Setup] Tools will be initialized on first request instead");
     }
 
-    // Create single HTTP transport for all requests
-    this.httpTransport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-    });
-
-    // Connect transport to MCP server
-    await this.server.connect(this.httpTransport);
-    console.log("[Setup] HTTP transport connected to MCP server");
-
-    // Verify handlers are callable by testing listTools directly
-    console.log("[Setup] Testing if Chrome client listTools works...");
-    try {
-      const testTools = await this.chromeClient!.listTools();
-      console.log(`[Setup] SUCCESS! Chrome client has ${testTools.tools.length} tools available`);
-      console.log(`[Setup] Sample tools:`, testTools.tools.slice(0, 3).map((t: any) => t.name));
-    } catch (error) {
-      console.error("[Setup] ERROR testing Chrome client:", error);
-    }
-
     const httpServer = http.createServer(async (req, res) => {
+      const requestId = randomUUID().slice(0, 8);
+
       // Log ALL incoming requests
-      console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
+      console.log(`[${new Date().toISOString()}] [${requestId}] ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
+
+      // Track connection lifecycle
+      req.on('close', () => {
+        console.log(`[${new Date().toISOString()}] [${requestId}] Request connection closed`);
+      });
+
+      req.on('error', (err) => {
+        console.error(`[${new Date().toISOString()}] [${requestId}] Request error:`, err.message);
+      });
+
+      res.on('close', () => {
+        console.log(`[${new Date().toISOString()}] [${requestId}] Response connection closed`);
+      });
+
+      res.on('error', (err) => {
+        console.error(`[${new Date().toISOString()}] [${requestId}] Response error:`, err.message);
+      });
+
+      // Set keepalive to prevent connection timeouts
+      req.socket.setKeepAlive(true, 60000); // 60 second keepalive
 
       // Health check endpoint
       if (req.url === "/health") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "ok", chrome_url: CHROME_URL }));
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        });
+        res.end(JSON.stringify({
+          status: "ok",
+          chrome_url: CHROME_URL,
+          chrome_connected: this.chromeClient !== null,
+          tools_available: this.chromeClient ? true : false
+        }));
         return;
       }
 
-      // MCP endpoint - let transport handle everything
+      // MCP endpoint - recreate server after SSE disconnects
       if (req.url === "/mcp" || req.url?.startsWith("/mcp")) {
-        console.log(`[${new Date().toISOString()}] Forwarding to HTTP transport...`);
+        console.log(`[${new Date().toISOString()}] [${requestId}] MCP request: ${req.method} ${req.url}`);
 
         try {
-          // Read request body if present
-          let body: unknown = undefined;
-          if (req.method === "POST" || req.method === "PUT") {
-            const chunks: Buffer[] = [];
-            for await (const chunk of req) {
-              chunks.push(chunk as Buffer);
-            }
-            const bodyText = Buffer.concat(chunks).toString();
-            if (bodyText) {
-              body = JSON.parse(bodyText);
-              const method = (body as any)?.method;
-              console.log(`[${new Date().toISOString()}] REQUEST: ${method}`);
-              console.log(`[${new Date().toISOString()}] Full body:`, JSON.stringify(body, null, 2));
-            }
+          // Add CORS headers
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+          res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+          // Handle OPTIONS
+          if (req.method === "OPTIONS") {
+            console.log(`[${new Date().toISOString()}] [${requestId}] OPTIONS preflight`);
+            res.writeHead(200);
+            res.end();
+            return;
           }
 
-          // Let transport handle the request
-          await this.httpTransport!.handleRequest(req, res, body);
+          // Get or create session
+          const sharedSessionId = "http-shared";
+          let session = this.activeSessions.get(sharedSessionId);
 
-          console.log(`[${new Date().toISOString()}] Request handled by transport`);
+          if (!session) {
+            console.log(`[${new Date().toISOString()}] [${requestId}] Creating new MCP transport+server`);
+
+            const transport = new StreamableHTTPServerTransport({
+              sessionIdGenerator: () => randomUUID(),
+            });
+
+            const server = this.createServerForSession(sharedSessionId);
+            await server.connect(transport);
+
+            session = { server, transport };
+            this.activeSessions.set(sharedSessionId, session);
+          }
+
+          // For GET requests (SSE), set up cleanup when connection closes
+          if (req.method === "GET") {
+            const cleanupSession = () => {
+              console.log(`[${new Date().toISOString()}] [${requestId}] SSE disconnected, will recreate server for next client`);
+              // Set a small delay to allow any in-flight requests to complete
+              setTimeout(async () => {
+                const sess = this.activeSessions.get(sharedSessionId);
+                if (sess) {
+                  console.log(`[${new Date().toISOString()}] Cleaning up session after SSE disconnect`);
+                  this.activeSessions.delete(sharedSessionId);
+                  try {
+                    await sess.transport.close();
+                    await sess.server.close();
+                  } catch (err) {
+                    console.error("Error cleaning up session:", err);
+                  }
+                }
+              }, 100);
+            };
+
+            res.on('close', cleanupSession);
+            res.on('finish', cleanupSession);
+          }
+
+          // Forward request to transport
+          console.log(`[${new Date().toISOString()}] [${requestId}] Forwarding to transport`);
+          await session.transport.handleRequest(req, res);
+          console.log(`[${new Date().toISOString()}] [${requestId}] Request handled`);
+
         } catch (error) {
-          console.error("[Error] Failed to handle MCP request:", error);
-          console.error("[Error] Stack:", (error as Error).stack);
+          console.error(`[${new Date().toISOString()}] [${requestId}] ERROR:`, error);
+
           if (!res.headersSent) {
-            res.writeHead(500, { "Content-Type": "text/plain" });
-            res.end("Error handling MCP request");
+            res.writeHead(500, {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*"
+            });
+            res.end(JSON.stringify({
+              error: "Internal server error",
+              message: error instanceof Error ? error.message : String(error),
+              requestId: requestId
+            }));
           }
         }
         return;
@@ -277,8 +345,12 @@ class ChromeProxyServer {
 
   async startStdio(): Promise<void> {
     console.log("[Server] Starting in stdio mode...");
+
+    // For stdio, create a single server since it's a persistent connection
+    const server = this.createServerForSession("stdio");
     const transport = new StdioServerTransport();
-    await this.server.connect(transport);
+    await server.connect(transport);
+
     console.log("[Server] Connected via stdio");
   }
 }

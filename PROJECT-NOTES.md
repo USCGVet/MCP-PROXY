@@ -121,7 +121,8 @@ MCP-Proxy/
 │   └── server.ts              # Main proxy implementation
 ├── package.json               # Dependencies & scripts
 ├── tsconfig.json             # TypeScript configuration
-├── start.bat                 # Windows launcher
+├── start-chrome.ps1          # Chrome launcher (PowerShell)
+├── start.bat                 # Proxy server launcher
 ├── README.md                 # User documentation
 ├── SETUP.md                  # Setup guide
 ├── PROJECT-NOTES.md          # This file
@@ -341,6 +342,45 @@ Modern MCP SDK uses `StreamableHTTPServerTransport` (not deprecated `SSEServerTr
 - Standard stdio MCP interface
 - Automatic process lifecycle management
 
+### Session Management Architecture
+
+**Critical Design Decision: SSE Disconnect Cleanup**
+
+The MCP SDK's `Server` class maintains global initialization state and rejects subsequent `initialize()` calls. This creates a problem for ephemeral connections like health checks:
+
+```typescript
+// Problem pattern:
+Client 1 connects → Server initializes ✓
+Client 1 disconnects → Server stays initialized
+Client 2 connects → Server rejects: "already initialized" ✗
+```
+
+**Solution:** Recreate Server+Transport after SSE disconnection
+
+```typescript
+if (req.method === "GET") {  // SSE connection
+  res.on('close', () => {
+    // Cleanup after brief delay
+    setTimeout(async () => {
+      await session.transport.close();
+      await session.server.close();
+      this.activeSessions.delete(sessionId);
+    }, 100);
+  });
+}
+```
+
+This ensures each client connection gets a fresh Server instance that can be initialized, supporting:
+- Multiple sequential health checks (`claude mcp list`)
+- Ephemeral client connections
+- Connection pooling without state conflicts
+- Stable long-running server operation
+
+**Why 100ms Delay:**
+- Allows in-flight requests to complete gracefully
+- Prevents race conditions between cleanup and new connections
+- Low enough to not impact user experience
+
 ---
 
 ## Troubleshooting
@@ -358,9 +398,25 @@ Modern MCP SDK uses `StreamableHTTPServerTransport` (not deprecated `SSEServerTr
 - Test: `curl http://<HOST_IP>:3000/health`
 
 **MCP Protocol Errors**
-- Ensure MCP SDK version compatibility
+- Ensure MCP SDK version compatibility (`@modelcontextprotocol/sdk` ^1.0.4)
 - Update dependencies if needed
 - Check client MCP implementation version
+
+**Intermittent "Server already initialized" Errors (Pre-v1.1 Issue)**
+- **Fixed in current version** via SSE disconnect cleanup
+- If using older versions, restart proxy between client connections
+- Update to latest version for automatic session management
+
+**Connection Stability Issues**
+- Check server logs for SSE disconnect/cleanup messages
+- Verify `Cleaning up session after SSE disconnect` appears in logs
+- Each new client should see `Creating new MCP transport+server`
+- If not, server may not be detecting disconnections properly
+
+**Health Check Failures After First Success**
+- This was a critical bug in pre-v1.1 versions
+- Solution: Update to latest version with session recreation logic
+- Workaround for old versions: Restart proxy server
 
 ---
 
@@ -415,8 +471,25 @@ Contributions welcome for:
 
 ---
 
+## Version History
+
+### v1.1 (Current) - Session Management Fix
+- **Critical Fix:** Automatic server recreation after SSE disconnect
+- **Problem Solved:** "Server already initialized" errors on subsequent connections
+- **Architecture:** Each client connection gets fresh Server+Transport instance
+- **Stability:** Supports unlimited sequential health checks and ephemeral connections
+- **Logging:** Enhanced request tracking with unique IDs and lifecycle events
+
+### v1.0 (Initial Release)
+- Basic MCP HTTP proxy implementation
+- Chrome DevTools integration via subprocess
+- SSE transport support
+- Known Issue: Connection failures after first client disconnect
+
 ## Summary
 
 This project solves Chrome's localhost-only DevTools restriction by placing a proxy in Chrome's local environment. The proxy exposes Chrome's capabilities via MCP over HTTP/SSE, enabling remote clients to access DevTools functionality while respecting Chrome's security model.
 
 The implementation provides a reusable pattern for bridging stdio MCP servers across network boundaries, applicable beyond Chrome DevTools to any stdio-based MCP server.
+
+**Key Innovation (v1.1):** Automatic session lifecycle management handles the MCP Server's initialization state constraint, enabling stable operation with ephemeral client connections typical of health checks and short-lived automation tasks.

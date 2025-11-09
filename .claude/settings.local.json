@@ -20,7 +20,11 @@
       "mcp__chrome-proxy__take_screenshot",
       "mcp__chrome-proxy__list_network_requests",
       "mcp__chrome-proxy__list_console_messages",
-      "mcp__chrome-proxy__wait_for"
+      "mcp__chrome-proxy__wait_for",
+      "Bash(npm run build)",
+      "Bash(for:*)",
+      "Bash(do echo \"=== Test $i ===\")",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

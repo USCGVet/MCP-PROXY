@@ -53,8 +53,14 @@ Every time you want to use Chrome DevTools from WSL, follow these steps:
 
 ### Step 1: Start Chrome with Remote Debugging
 
-Open **PowerShell**:
+**Option A: Use the PowerShell launcher** (Recommended)
 
+Right-click `start-chrome.ps1` and select "Run with PowerShell", or:
+```powershell
+.\start-chrome.ps1
+```
+
+**Option B: Manual start via PowerShell**
 ```powershell
 & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:TEMP\chrome-profile-mcp"
 ```
@@ -158,6 +164,30 @@ Should show:
 chrome-proxy: http://<WSL_HOST_IP>:3000/mcp (HTTP) - ✓ Connected
 ```
 
+### 4. Test Connection Stability
+
+Run multiple health checks to verify the session management is working:
+
+```bash
+for i in {1..5}; do
+  echo "Test $i:"
+  claude mcp list
+  sleep 1
+done
+```
+
+**Expected:** All 5 tests should show `✓ Connected`
+
+**Server Logs Should Show:**
+```
+[Session] Creating new MCP transport+server
+...
+[SSE disconnected, will recreate server for next client]
+[Cleaning up session after SSE disconnect]
+```
+
+This confirms the automatic session recreation is working properly.
+
 ---
 
 ## Available Chrome DevTools Tools
@@ -245,6 +275,24 @@ Once connected, Claude Code can use these 26 tools:
    ```powershell
    Get-NetFirewallRule -DisplayName "MCP Proxy"
    ```
+
+### First Connection Works, Then Fails
+
+**Problem:** `claude mcp list` succeeds once, then subsequent attempts fail
+
+**Cause:** This was a critical bug in pre-v1.1 versions where the MCP Server stayed initialized after disconnect.
+
+**Solution:**
+- **Update to v1.1+** - The current version automatically recreates sessions
+- Check server logs for: `Cleaning up session after SSE disconnect`
+- Each new connection should show: `Creating new MCP transport+server`
+- Old workaround (v1.0): Restart proxy between connections
+
+**Verify the fix:**
+```bash
+# All 5 should succeed in v1.1+
+for i in {1..5}; do claude mcp list; sleep 1; done
+```
 
 ### Port 3000 Already in Use
 
@@ -414,8 +462,8 @@ If you encounter issues:
 
 **The Simple Version:**
 
-1. Start Chrome: `chrome.exe --remote-debugging-port=9222 --user-data-dir="$env:TEMP\chrome-profile-mcp"`
-2. Start Proxy: `npm start` in the MCP-Proxy directory
+1. Start Chrome: Right-click `start-chrome.ps1` → "Run with PowerShell"
+2. Start Proxy: Right-click `start.bat` or run `npm start`
 3. Use from WSL: `claude` then ask it to control Chrome
 
 That's it! No port forwarding, no special flags, just the proxy doing its job.

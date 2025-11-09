@@ -47,13 +47,17 @@ npm install
 
 ### 2. Start Chrome with Remote Debugging
 
-Start Chrome on Windows with the remote debugging flag:
+**Option A: Use the PowerShell launcher** (Recommended)
 
-```bash
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+Right-click `start-chrome.ps1` and select "Run with PowerShell", or from PowerShell:
+```powershell
+.\start-chrome.ps1
 ```
 
-Or create a shortcut with this flag added to the target.
+**Option B: Manual start**
+```powershell
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:TEMP\chrome-profile-mcp"
+```
 
 **Verify Chrome is running:**
 ```bash
@@ -248,6 +252,39 @@ npm start
 
 4. Ensure the server is binding to `0.0.0.0`, not `127.0.0.1`
 
+### Intermittent Connection Failures
+
+**Problem:** `claude mcp list` succeeds first time, then fails on subsequent attempts
+
+**Cause:** This was a bug in earlier versions where the MCP Server instance stayed initialized after client disconnects.
+
+**Solution:**
+- **Already fixed** in current version (v1.1+)
+- The server now automatically recreates sessions after SSE disconnections
+- You should see this in logs: `Cleaning up session after SSE disconnect`
+- Each new connection creates a fresh server instance
+
+**Verification:**
+```bash
+# Run multiple times - should all succeed
+for i in {1..5}; do
+  echo "Test $i:"
+  claude mcp list
+  sleep 1
+done
+```
+
+All attempts should show `✓ Connected`
+
+### Server Logs Show "Server already initialized"
+
+**Problem:** Error messages about server initialization in logs
+
+**Solution:**
+- Update to latest version (v1.1+)
+- The session recreation logic was added to fix this
+- Old workaround: Restart server between connections (not needed in v1.1+)
+
 ### Port Already in Use
 
 **Problem:** `[Error] Port 3000 is already in use!`
@@ -293,7 +330,8 @@ npm start
 MCP-Proxy/
 ├── package.json          # Dependencies and scripts
 ├── tsconfig.json         # TypeScript configuration
-├── start.bat             # Windows launcher script
+├── start-chrome.ps1      # Chrome launcher (PowerShell)
+├── start.bat             # Proxy server launcher
 ├── README.md             # This file
 ├── src/
 │   └── server.ts         # Main proxy server implementation
@@ -342,8 +380,25 @@ The proxy server (`src/server.ts`) consists of:
 
 MIT
 
+## Version & Changelog
+
+**Current Version:** 1.1.0
+
+**v1.1.0 - Session Management Stability**
+- Fixed critical bug: "Server already initialized" errors
+- Implemented automatic server recreation after SSE disconnect
+- Added enhanced logging with request IDs and lifecycle tracking
+- Improved CORS headers for cross-origin compatibility
+- Connection keepalive support for long-lived sessions
+
+**v1.0.0 - Initial Release**
+- Basic MCP HTTP proxy for Chrome DevTools
+- WSL-Windows network bridging
+- Support for 26 Chrome DevTools tools
+
 ## Credits
 
 - Built with [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/sdk)
 - Uses [chrome-devtools-mcp](https://github.com/modelcontextprotocol/servers/tree/main/src/chrome-devtools) for Chrome integration
 - Created to solve WSL-Windows Chrome networking challenges
+- Session management pattern inspired by MCP SDK's stateful transport design
