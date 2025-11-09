@@ -20,7 +20,7 @@ Complete setup instructions for running the MCP Chrome Proxy to enable WSL Claud
 Open **PowerShell** or **Command Prompt** as Administrator:
 
 ```powershell
-cd C:\HTML\MCP-Proxy
+cd C:\path\to\MCP-Proxy
 npm install
 ```
 
@@ -37,10 +37,10 @@ New-NetFirewallRule -DisplayName "MCP Proxy" -Direction Inbound -LocalPort 3000 
 In your **WSL terminal**:
 
 ```bash
-claude mcp add --transport http chrome-proxy http://172.18.128.1:3000/mcp
+claude mcp add --transport http chrome-proxy http://<WSL_HOST_IP>:3000/mcp
 ```
 
-**Note:** If `172.18.128.1` doesn't work, find your Windows IP from WSL:
+**Note:** Replace `<WSL_HOST_IP>` with your Windows host IP from WSL2. To find your Windows IP from WSL:
 ```bash
 cat /etc/resolv.conf | grep nameserver | awk '{print $2}'
 ```
@@ -77,13 +77,13 @@ In the same or a new **PowerShell** window:
 
 **Option A: Use the launcher script**
 ```powershell
-cd C:\HTML\MCP-Proxy
+cd C:\path\to\MCP-Proxy
 .\start.bat
 ```
 
 **Option B: Use npm**
 ```powershell
-cd C:\HTML\MCP-Proxy
+cd C:\path\to\MCP-Proxy
 npm start
 ```
 
@@ -136,8 +136,10 @@ Should return JSON with Chrome version info.
 
 From **WSL**:
 ```bash
-curl http://172.18.128.1:3000/health
+curl http://<WSL_HOST_IP>:3000/health
 ```
+
+Replace `<WSL_HOST_IP>` with the IP you found earlier (typically `172.x.x.1`).
 
 Should return:
 ```json
@@ -153,7 +155,7 @@ claude mcp list
 
 Should show:
 ```
-chrome-proxy: http://172.18.128.1:3000/mcp (HTTP) - ✓ Connected
+chrome-proxy: http://<WSL_HOST_IP>:3000/mcp (HTTP) - ✓ Connected
 ```
 
 ---
@@ -231,7 +233,7 @@ Once connected, Claude Code can use these 26 tools:
 1. Verify proxy is running on Windows
 2. Test from WSL:
    ```bash
-   curl http://172.18.128.1:3000/health
+   curl http://<WSL_HOST_IP>:3000/health
    ```
 
 3. If that fails, check Windows IP:
@@ -263,7 +265,7 @@ Once connected, Claude Code can use these 26 tools:
    Then update WSL config:
    ```bash
    claude mcp remove chrome-proxy
-   claude mcp add --transport http chrome-proxy http://172.18.128.1:8080/mcp
+   claude mcp add --transport http chrome-proxy http://<WSL_HOST_IP>:8080/mcp
    ```
 
 ### Dependencies Out of Date
@@ -272,7 +274,7 @@ Once connected, Claude Code can use these 26 tools:
 
 **Solution:**
 ```powershell
-cd C:\HTML\MCP-Proxy
+cd C:\path\to\MCP-Proxy
 rm -r node_modules
 rm package-lock.json
 npm install
@@ -322,7 +324,7 @@ New-NetFirewallRule -DisplayName "WSL Chrome DevTools" -Direction Inbound -Local
 │   WSL Ubuntu        │
 │                     │
 │   Claude Code CLI   │
-│   (172.18.128.140)  │
+│   (<WSL_IP>)        │
 └──────────┬──────────┘
            │ HTTP
            │ POST /mcp
@@ -344,7 +346,7 @@ New-NetFirewallRule -DisplayName "WSL Chrome DevTools" -Direction Inbound -Local
 ```
 
 **Key Points:**
-- WSL connects to **proxy** at `172.18.128.1:3000` (Windows host IP)
+- WSL connects to **proxy** at `<WSL_HOST_IP>:3000` (Windows host IP)
 - Proxy runs **on Windows** so it can access `localhost:9222`
 - Chrome only accepts connections from **localhost** (security)
 - Proxy forwards MCP requests via `chrome-devtools-mcp` subprocess
@@ -388,7 +390,7 @@ Then start the server and it will use these settings.
 To update to the latest version:
 
 ```powershell
-cd C:\HTML\MCP-Proxy
+cd C:\path\to\MCP-Proxy
 git pull  # if using git
 npm install
 npm start
@@ -404,7 +406,7 @@ If you encounter issues:
 2. Run verification steps above
 3. Review troubleshooting section
 4. Check that Chrome and the proxy are both running
-5. Verify WSL can reach `172.18.128.1:3000`
+5. Verify WSL can reach `<WSL_HOST_IP>:3000`
 
 ---
 
@@ -413,7 +415,7 @@ If you encounter issues:
 **The Simple Version:**
 
 1. Start Chrome: `chrome.exe --remote-debugging-port=9222 --user-data-dir="$env:TEMP\chrome-profile-mcp"`
-2. Start Proxy: `npm start` in `C:\HTML\MCP-Proxy`
+2. Start Proxy: `npm start` in the MCP-Proxy directory
 3. Use from WSL: `claude` then ask it to control Chrome
 
 That's it! No port forwarding, no special flags, just the proxy doing its job.

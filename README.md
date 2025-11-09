@@ -41,7 +41,7 @@ WSL Ubuntu                 Windows 11
 Open **PowerShell** or **Command Prompt** on Windows and navigate to this directory:
 
 ```bash
-cd C:\HTML\MCP-Proxy
+cd C:\path\to\MCP-Proxy
 npm install
 ```
 
@@ -92,7 +92,7 @@ MCP Chrome Proxy Server Started
 ============================================================
 
 [Info] To configure Claude Code from WSL, run:
-  claude mcp add --transport http chrome-proxy http://172.18.128.1:3000/mcp
+  claude mcp add --transport http chrome-proxy http://<WSL_HOST_IP>:3000/mcp
 
 [Ready] Waiting for connections...
 ```
@@ -102,10 +102,10 @@ MCP Chrome Proxy Server Started
 In your WSL terminal, add the proxy server as an MCP server:
 
 ```bash
-claude mcp add --transport http chrome-proxy http://172.18.128.1:3000/mcp
+claude mcp add --transport http chrome-proxy http://<WSL_HOST_IP>:3000/mcp
 ```
 
-**Note:** `172.18.128.1` is the default Windows host IP from WSL2. If your setup is different, find your Windows IP from WSL using:
+**Note:** Replace `<WSL_HOST_IP>` with your Windows host IP from WSL2. To find your Windows IP from WSL, use:
 ```bash
 cat /etc/resolv.conf | grep nameserver | awk '{print $2}'
 ```
@@ -114,8 +114,10 @@ cat /etc/resolv.conf | grep nameserver | awk '{print $2}'
 
 Test the health endpoint from WSL:
 ```bash
-curl http://172.18.128.1:3000/health
+curl http://<WSL_HOST_IP>:3000/health
 ```
+
+Replace `<WSL_HOST_IP>` with the IP found using the command above (typically something like `172.x.x.1`).
 
 You should see:
 ```json
@@ -288,7 +290,7 @@ npm start
 ### Project Structure
 
 ```
-C:\HTML\MCP-Proxy\
+MCP-Proxy/
 ├── package.json          # Dependencies and scripts
 ├── tsconfig.json         # TypeScript configuration
 ├── start.bat             # Windows launcher script
